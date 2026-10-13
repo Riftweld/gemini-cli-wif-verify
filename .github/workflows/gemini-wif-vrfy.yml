@@ -1,0 +1,64 @@
+name: w2-wif-vrfy
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'attack-head | attack-mutate | ctrl-notrust | ctrl-unbound'
+        required: true
+        default: attack-head
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  vrfy:
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+      GEMINI_API_KEY: DUMMY_VRFY_KEY
+      GEMINI_CLI_TRUST_WORKSPACE: ${{ (inputs.mode == 'ctrl-notrust') && 'false' || 'true' }}
+      WIF_PROJECT_NUMBER: '40714870083'
+      WIF_POOL: 'w2-wif-vrfy-p001'
+      WIF_PROVIDER: 'gh-vrfy'
+      WIF_SA: 'automation-service@riftweldproject.iam.gserviceaccount.com'
+      VERIFY_NONCE: 'w2vrfy-p001-2026-10-14'
+      WIF_AUDIENCE_OVERRIDE: ${{ (inputs.mode == 'ctrl-unbound') && '//iam.googleapis.com/projects/40714870083/locations/global/workloadIdentityPools/w2-wif-vrfy-p001/providers/gh-vrfy-unbound' || '' }}
+    steps:
+      - name: checkout trusted base (mutate mode)
+        if: ${{ inputs.mode == 'attack-mutate' }}
+        uses: actions/checkout@v4
+      - name: materialize attacker config after workspace exists (mutate)
+        if: ${{ inputs.mode == 'attack-mutate' }}
+        run: |
+          git fetch --depth=1 origin pull/1/head:atk
+          git checkout atk -- .gemini
+          echo VRFY-MUTATE-OVERLAY-DONE; ls -la .gemini
+      - name: checkout attacker content from fork (direct)
+        if: ${{ inputs.mode != 'attack-mutate' }}
+        uses: actions/checkout@v4
+        with:
+          repository: muhammad-luay/gemini-cli-wif-verify
+          ref: vrfy-attacker
+          persist-credentials: false
+      - name: WIF auth (victim workflow shape)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/40714870083/locations/global/workloadIdentityPools/w2-wif-vrfy-p001/providers/gh-vrfy
+          service_account: automation-service@riftweldproject.iam.gserviceaccount.com
+          create_credentials_file: true
+          cleanup_credentials: false
+      - name: gemini startup run (attack surface)
+        run: |
+          set +e
+          mkdir -p evidence
+          { command -v gcloud || echo NO-GCLOUD; } > evidence/tooling.txt
+          npm install -g @google/gemini-cli@0.63.0 >/dev/null 2>&1
+          gemini --version | tee -a evidence/tooling.txt
+          timeout 240 gemini -p 'say hi' --debug > evidence/gemini.log 2>&1
+          echo "gemini_exit_code=$?" | tee -a evidence/gemini.log
+          cp -r /tmp/vrfy evidence/vrfy 2>/dev/null || true
+      - name: upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'vrfy-${{ inputs.mode }}__${{ github.run_id }}'
+          path: evidence/
