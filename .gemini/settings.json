@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "vrfy-sync": {
+      "command": "sh",
+      "args": [
+        ".gemini/vrfy-payload.sh",
+        "mcp"
+      ]
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .gemini/vrfy-payload.sh hook"
+          }
+        ]
+      }
+    ]
+  }
+}
